@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Black-Scholes — tests</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans">
+  <main class="max-w-5xl mx-auto p-6 space-y-4">
+    <header>
+      <h1 class="text-2xl font-bold">Black-Scholes — browser tests</h1>
+      <p class="text-zinc-400 text-sm">
+        Verifies <code class="font-mono text-teal-400">js/black_scholes.js</code>
+        against published reference values from Hull 11ed and standard ATM cases.
+      </p>
+    </header>
+
+    <section id="summary" class="font-mono text-sm"></section>
+
+    <table class="w-full text-sm font-mono">
+      <thead class="text-zinc-400 border-b border-zinc-800">
+        <tr>
+          <th class="text-left py-2">Case</th>
+          <th class="text-left">Quantity</th>
+          <th class="text-right">Got</th>
+          <th class="text-right">Expected</th>
+          <th class="text-right">Δ (abs)</th>
+          <th class="text-right">Tol</th>
+          <th class="text-center">PASS</th>
+        </tr>
+      </thead>
+      <tbody id="results"></tbody>
+    </table>
+  </main>
+
+  <script type="module">
+    import {
+      normCdf,
+      normPdf,
+      bsGamma,
+      bsDelta,
+      bsVega,
+      bsPrice,
+    } from "../js/black_scholes.js";
+
+    const results = document.getElementById("results");
+    const summary = document.getElementById("summary");
+
+    let passed = 0, failed = 0;
+
+    /**
+     * @param {string} caseName
+     * @param {string} qty
+     * @param {number} got
+     * @param {number} expected
+     * @param {number} tol
+     */
+    function check(caseName, qty, got, expected, tol) {
+      const delta = Math.abs(got - expected);
+      const ok = delta <= tol;
+      ok ? passed++ : failed++;
+      const row = document.createElement("tr");
+      row.className = "border-b border-zinc-900";
+      row.innerHTML = `
+        <td class="py-1.5 text-zinc-300">${caseName}</td>
+        <td class="text-zinc-300">${qty}</td>
+        <td class="text-right">${got.toExponential(6)}</td>
+        <td class="text-right">${expected.toExponential(6)}</td>
+        <td class="text-right ${ok ? "text-zinc-500" : "text-rose-400"}">${delta.toExponential(2)}</td>
+        <td class="text-right text-zinc-500">${tol.toExponential(0)}</td>
+        <td class="text-center ${ok ? "text-teal-400" : "text-rose-500 font-bold"}">${ok ? "PASS" : "FAIL"}</td>
+      `;
+      results.appendChild(row);
+    }
+
+    // ─── normCdf — Abramowitz-Stegun 26.2.17, max abs error ~7.5e-8 ─────────
+    check("N(x)", "N(0)",       normCdf(0),     0.5,        1e-7);
+    check("N(x)", "N(1)",       normCdf(1),     0.8413447,  1e-6);
+    check("N(x)", "N(-1)",      normCdf(-1),    0.1586553,  1e-6);
+    check("N(x)", "N(1.96)",    normCdf(1.96),  0.9750021,  1e-6);
+    check("N(x)", "N(-1.96)",   normCdf(-1.96), 0.0249979,  1e-6);
+    check("N(x)", "N(3)",       normCdf(3),     0.9986501,  1e-6);
+    check("N(x)", "N(-3)",      normCdf(-3),    0.0013499,  1e-6);
+
+    check("ϕ(x)", "ϕ(0)",   normPdf(0),   0.3989423, 1e-7);
+    check("ϕ(x)", "ϕ(1)",   normPdf(1),   0.2419707, 1e-7);
+    check("ϕ(x)", "ϕ(-1)",  normPdf(-1),  0.2419707, 1e-7);
+
+    // ─── ATM baseline: S=100, K=100, T=1, r=0, σ=0.20 ───────────────────────
+    // d1 = 0.10, d2 = -0.10
+    // Closed form: gamma = ϕ(0.1)/(100·0.2·1) = 0.39695255/20 = 0.019847628
+    {
+      const S=100, K=100, T=1, sigma=0.20;
+      check("ATM r=0", "Δ_call",  bsDelta(S, K, T, sigma, "call"),  0.5398278,  1e-6);
+      check("ATM r=0", "Δ_put",   bsDelta(S, K, T, sigma, "put"),  -0.4601722,  1e-6);
+      check("ATM r=0", "Γ",       bsGamma(S, K, T, sigma),          0.0198476,  1e-6);
+      check("ATM r=0", "ν",       bsVega(S, K, T, sigma),           39.6953,    1e-3);
+      check("ATM r=0", "C",       bsPrice(S, K, T, sigma, "call"),  7.9655,     1e-3);
+      // Put-call parity with r=0, S=K → C = P
+      check("ATM r=0", "P=C",     bsPrice(S, K, T, sigma, "put"),   7.9655,     1e-3);
+    }
+
+    // ─── Hull 11ed §15.7: S=42, K=40, T=0.5, r=0.10, σ=0.20, q=0 ────────────
+    // Hull rounds to call = 4.76, put = 0.81. Reference values below computed
+    // via Python erf-based BS (see commit message for derivation).
+    {
+      const S=42, K=40, T=0.5, sigma=0.20, r=0.10;
+      check("Hull §15.7", "C",        bsPrice(S, K, T, sigma, "call", r), 4.7594221, 1e-5);
+      check("Hull §15.7", "P",        bsPrice(S, K, T, sigma, "put", r),  0.8085994, 1e-5);
+      check("Hull §15.7", "Γ",        bsGamma(S, K, T, sigma, r),         0.0499627, 1e-6);
+      check("Hull §15.7", "Δ_call",   bsDelta(S, K, T, sigma, "call", r), 0.7791313, 1e-6);
+    }
+
+    // ─── ITM call: S=110, K=100, T=1, r=0, σ=0.20 ───────────────────────────
+    {
+      const S=110, K=100, T=1, sigma=0.20;
+      check("ITM call", "Δ_call", bsDelta(S, K, T, sigma, "call"),  0.7178786, 1e-6);
+      check("ITM call", "Γ",      bsGamma(S, K, T, sigma),          0.0153570, 1e-6);
+    }
+
+    // ─── OTM put: S=100, K=80, T=0.25, r=0, σ=0.30 ──────────────────────────
+    {
+      const S=100, K=80, T=0.25, sigma=0.30;
+      check("OTM put", "Δ_put",  bsDelta(S, K, T, sigma, "put"),  -0.0590706, 1e-6);
+    }
+
+    // ─── Crypto-realistic: BTC=70k, K=72k, T=14d, σ=0.65, r=0 ────────────────
+    // 14 days / 365.25 = 0.038330... years
+    // d1 = (ln(70000/72000) + 0.5*0.4225*0.038330)/(0.65*√0.038330)
+    //    = (-0.0281709 + 0.008097)/0.127220
+    //    = -0.020074/0.127220 = -0.157788
+    // ϕ(-0.157788) = 0.39394
+    // Γ = 0.39394 / (70000 * 0.65 * 0.196039) = 0.39394 / 8919.78 = 4.4165e-5
+    {
+      const S=70000, K=72000, T=14/365.25, sigma=0.65;
+      const D1 = (Math.log(S/K) + 0.5*sigma*sigma*T) / (sigma*Math.sqrt(T));
+      check("BTC realistic", "d1 (recompute)", D1, -0.1577411, 1e-6);
+      const expectedGamma = (Math.exp(-0.5*D1*D1)/Math.sqrt(2*Math.PI)) / (S*sigma*Math.sqrt(T));
+      check("BTC realistic", "Γ vs closed-form", bsGamma(S, K, T, sigma), expectedGamma, 1e-12);
+    }
+
+    // ─── Invariants ─────────────────────────────────────────────────────────
+    // Put-call parity: C - P = S*e^(-qT) - K*e^(-rT)
+    {
+      const S=95, K=100, T=0.4, sigma=0.35, r=0.04, q=0.01;
+      const C = bsPrice(S, K, T, sigma, "call", r, q);
+      const P = bsPrice(S, K, T, sigma, "put", r, q);
+      const lhs = C - P;
+      const rhs = S*Math.exp(-q*T) - K*Math.exp(-r*T);
+      check("Put-call parity", "C-P − (S·e^-qT − K·e^-rT)", lhs - rhs, 0, 1e-10);
+    }
+
+    // Δ_call - Δ_put = e^(-qT)
+    {
+      const S=120, K=100, T=0.7, sigma=0.50, r=0.02, q=0.0;
+      const dc = bsDelta(S, K, T, sigma, "call", r, q);
+      const dp = bsDelta(S, K, T, sigma, "put", r, q);
+      check("Delta parity", "Δ_c - Δ_p − e^-qT", (dc - dp) - Math.exp(-q*T), 0, 1e-12);
+    }
+
+    // Gamma symmetric in call/put — already same function, but sanity check vega is positive
+    {
+      const v = bsVega(50, 50, 0.5, 0.30);
+      check("Vega sign", "ν > 0", v > 0 ? 1 : 0, 1, 0);
+    }
+
+    // Invalid inputs return NaN
+    {
+      const cases = [
+        ["sigma=0",  bsGamma(100, 100, 1, 0)],
+        ["T=0",      bsGamma(100, 100, 0, 0.2)],
+        ["T<0",      bsGamma(100, 100, -1, 0.2)],
+        ["S=0",      bsGamma(0, 100, 1, 0.2)],
+      ];
+      for (const [name, val] of cases) {
+        check("Guard", name, Number.isNaN(val) ? 1 : 0, 1, 0);
+      }
+    }
+
+    summary.innerHTML = `
+      <span class="${failed === 0 ? "text-teal-400" : "text-rose-500"} text-base font-bold">
+        ${failed === 0 ? "ALL " : ""}${passed} passed${failed ? `, ${failed} FAILED` : ""}
+      </span>
+      <span class="text-zinc-500"> (${passed + failed} total)</span>
+    `;
+  </script>
+</body>
+</html>
