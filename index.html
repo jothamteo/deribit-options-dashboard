@@ -29,19 +29,18 @@
   <main class="max-w-7xl mx-auto p-6 space-y-6">
     <!-- Spot / context strip -->
     <section id="context-strip" class="bg-zinc-900 border border-zinc-800 rounded p-4">
-      <p class="text-zinc-400 text-sm">Context strip — populated in Phase 2.</p>
+      <div class="text-zinc-500 text-sm font-mono">loading…</div>
     </section>
 
     <!-- GEX -->
     <section class="bg-zinc-900 border border-zinc-800 rounded p-4">
-      <h2 class="text-lg font-semibold mb-2">Dealer Gamma Exposure</h2>
+      <div class="flex items-baseline justify-between mb-2">
+        <h2 class="text-lg font-semibold">Dealer Gamma Exposure</h2>
+        <span class="text-xs text-zinc-500 font-mono">+calls, −puts (SqueezeMetrics canonical)</span>
+      </div>
       <div id="gex-by-strike" class="h-96"></div>
-      <div id="gex-vs-spot" class="h-72 mt-4"></div>
-      <p class="text-zinc-500 text-xs mt-2">
-        Phase 2 — Phase 0 only scaffolds. See
-        <a class="underline hover:text-zinc-300" href="tests/test_deribit_dump.html">raw-data dump</a>
-        to verify the data layer.
-      </p>
+      <div class="text-xs text-zinc-500 mt-1 font-mono">total GEX vs hypothetical spot — zero-gamma flip annotated</div>
+      <div id="gex-vs-spot" class="h-72 mt-2"></div>
     </section>
 
     <!-- IV surface + per-expiry slices -->

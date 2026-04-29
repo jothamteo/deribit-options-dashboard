@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GEX — tests</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans">
+  <main class="max-w-5xl mx-auto p-6 space-y-4">
+    <header>
+      <h1 class="text-2xl font-bold">GEX — browser tests</h1>
+      <p class="text-zinc-400 text-sm">
+        Hand-computed reference cases for <code class="font-mono text-teal-400">js/gex.js</code>.
+      </p>
+    </header>
+
+    <section id="summary" class="font-mono text-sm"></section>
+
+    <table class="w-full text-sm font-mono">
+      <thead class="text-zinc-400 border-b border-zinc-800">
+        <tr>
+          <th class="text-left py-2">Case</th>
+          <th class="text-left">Quantity</th>
+          <th class="text-right">Got</th>
+          <th class="text-right">Expected</th>
+          <th class="text-right">Δ (abs)</th>
+          <th class="text-right">Tol</th>
+          <th class="text-center">PASS</th>
+        </tr>
+      </thead>
+      <tbody id="results"></tbody>
+    </table>
+  </main>
+
+  <script type="module">
+    import { bsGamma } from "../js/black_scholes.js";
+    import {
+      perOptionGex,
+      gexByStrike,
+      totalGex,
+      gexCurve,
+      findZeroGammaFlip,
+      oiStats,
+      joinInstrumentsAndBook,
+    } from "../js/gex.js";
+
+    const results = document.getElementById("results");
+    const summary = document.getElementById("summary");
+    let passed = 0, failed = 0;
+
+    function check(caseName, qty, got, expected, tol) {
+      const d = Math.abs(got - expected);
+      const ok = d <= tol;
+      ok ? passed++ : failed++;
+      const row = document.createElement("tr");
+      row.className = "border-b border-zinc-900";
+      row.innerHTML = `
+        <td class="py-1.5 text-zinc-300">${caseName}</td>
+        <td class="text-zinc-300">${qty}</td>
+        <td class="text-right">${typeof got === "number" ? got.toExponential(6) : got}</td>
+        <td class="text-right">${typeof expected === "number" ? expected.toExponential(6) : expected}</td>
+        <td class="text-right ${ok ? "text-zinc-500" : "text-rose-400"}">${typeof d === "number" ? d.toExponential(2) : d}</td>
+        <td class="text-right text-zinc-500">${tol.toExponential(0)}</td>
+        <td class="text-center ${ok ? "text-teal-400" : "text-rose-500 font-bold"}">${ok ? "PASS" : "FAIL"}</td>
+      `;
+      results.appendChild(row);
+    }
+
+    // Use a fixed "now" so T is reproducible regardless of when tests run.
+    const NOW = Date.UTC(2026, 0, 1);
+    const ONE_YEAR = 365.25 * 86400 * 1000;
+    const expiry30d = NOW + 30 * 86400 * 1000;
+    const T30 = 30 / 365.25;
+
+    // ─── Per-option GEX, single call ────────────────────────────────────────
+    // S=70000, K=70000, T=30/365.25, σ=0.65, OI=100, contractSize=1
+    // Γ via BS: ϕ(d1)/(S·σ·√T)
+    // GEX = +1 · Γ · OI · 1 · S² · 0.01
+    {
+      const S = 70000, K = 70000, sigma = 0.65, OI = 100;
+      const opt = {
+        instrument_name: "BTC-30JAN26-70000-C",
+        strike: K, option_type: "call", expiration_ms: expiry30d,
+        oi: OI, markIv: sigma, contractSize: 1,
+      };
+      const gamma = bsGamma(S, K, T30, sigma);
+      const expected = gamma * OI * 1 * S * S * 0.01;
+      const got = perOptionGex(opt, S, NOW);
+      check("perOptionGex", "ATM call", got, expected, 1e-9);
+    }
+
+    // ─── Per-option GEX, single put (sign should be NEGATIVE) ───────────────
+    {
+      const S = 70000, K = 70000, sigma = 0.65, OI = 100;
+      const opt = {
+        instrument_name: "BTC-30JAN26-70000-P",
+        strike: K, option_type: "put", expiration_ms: expiry30d,
+        oi: OI, markIv: sigma, contractSize: 1,
+      };
+      const gamma = bsGamma(S, K, T30, sigma);
+      const expected = -gamma * OI * 1 * S * S * 0.01;
+      const got = perOptionGex(opt, S, NOW);
+      check("perOptionGex", "ATM put (sign)", got, expected, 1e-9);
+      // Sanity: put GEX < 0
+      check("perOptionGex", "put GEX < 0", got < 0 ? 1 : 0, 1, 0);
+    }
+
+    // ─── gexByStrike: 3-strike book, hand-computed ─────────────────────────
+    // Two strikes: 65k call+put, 75k call only
+    // Each ATM 65k call w/ OI=10 contributes positive; 65k put w/ OI=20 negative
+    // 75k call w/ OI=5 contributes positive
+    {
+      const S = 70000, sigma = 0.6;
+      const opts = [
+        { instrument_name: "A", strike: 65000, option_type: "call", expiration_ms: expiry30d, oi: 10, markIv: sigma, contractSize: 1 },
+        { instrument_name: "B", strike: 65000, option_type: "put",  expiration_ms: expiry30d, oi: 20, markIv: sigma, contractSize: 1 },
+        { instrument_name: "C", strike: 75000, option_type: "call", expiration_ms: expiry30d, oi: 5,  markIv: sigma, contractSize: 1 },
+      ];
+      const rows = gexByStrike(opts, S, NOW);
+      check("gexByStrike", "row count", rows.length, 2, 0);
+      check("gexByStrike", "strikes sorted", rows[0].strike, 65000, 0);
+      check("gexByStrike", "strikes sorted", rows[1].strike, 75000, 0);
+      // Row 0 (65k): callGex>0, putGex<0
+      check("gexByStrike", "65k callGex sign", rows[0].callGex > 0 ? 1 : 0, 1, 0);
+      check("gexByStrike", "65k putGex sign",  rows[0].putGex  < 0 ? 1 : 0, 1, 0);
+      // Total = sum
+      check("gexByStrike", "65k total = call+put", rows[0].gex - (rows[0].callGex + rows[0].putGex), 0, 1e-9);
+
+      // Cross-check: totalGex equals sum of row.gex
+      const tot = totalGex(opts, S, NOW);
+      const sumRows = rows.reduce((s, r) => s + r.gex, 0);
+      check("totalGex", "= Σ row.gex", tot - sumRows, 0, 1e-9);
+    }
+
+    // ─── gexCurve produces correct count and brackets baseline ─────────────
+    {
+      const opts = [
+        { instrument_name: "A", strike: 70000, option_type: "call", expiration_ms: expiry30d, oi: 10, markIv: 0.6, contractSize: 1 },
+      ];
+      const curve = gexCurve(opts, 70000, 0.20, 0.005, NOW);
+      // -0.20 to +0.20 in 0.005 = 81 points
+      check("gexCurve", "point count", curve.length, 81, 0);
+      check("gexCurve", "first spot", curve[0].spot, 70000 * 0.80, 1e-6);
+      check("gexCurve", "last spot",  curve[curve.length - 1].spot, 70000 * 1.20, 1e-6);
+      // Single call → all positive
+      const allPositive = curve.every((p) => p.gex >= 0);
+      check("gexCurve", "all-call book → all GEX ≥ 0", allPositive ? 1 : 0, 1, 0);
+    }
+
+    // ─── findZeroGammaFlip on a constructed sign change ────────────────────
+    {
+      // synthetic curve crossing zero between 70000 and 70200
+      const curve = [
+        { spot: 70000, gex: -1000 },
+        { spot: 70200, gex: 1000 },
+      ];
+      // Linear: t = -(-1000)/(1000-(-1000)) = 0.5; spot = 70000 + 0.5*200 = 70100
+      check("findZeroGammaFlip", "interp midpoint", findZeroGammaFlip(curve), 70100, 1e-9);
+    }
+    {
+      // exact zero at first point
+      const curve = [
+        { spot: 65000, gex: 0 },
+        { spot: 65100, gex: 500 },
+      ];
+      check("findZeroGammaFlip", "exact zero at start", findZeroGammaFlip(curve), 65000, 0);
+    }
+    {
+      // no sign change
+      const curve = [
+        { spot: 60000, gex: 100 },
+        { spot: 70000, gex: 200 },
+        { spot: 80000, gex: 300 },
+      ];
+      check("findZeroGammaFlip", "no sign change → null", findZeroGammaFlip(curve) === null ? 1 : 0, 1, 0);
+    }
+
+    // ─── oiStats ────────────────────────────────────────────────────────────
+    {
+      const opts = [
+        { instrument_name: "A", strike: 65000, option_type: "call", expiration_ms: expiry30d, oi: 10, markIv: 0.6, contractSize: 1 },
+        { instrument_name: "B", strike: 65000, option_type: "put",  expiration_ms: expiry30d, oi: 20, markIv: 0.6, contractSize: 1 },
+        { instrument_name: "C", strike: 75000, option_type: "call", expiration_ms: expiry30d, oi: 30, markIv: 0.6, contractSize: 1 },
+      ];
+      const s = oiStats(opts);
+      check("oiStats", "callOi", s.callOi, 40, 0);
+      check("oiStats", "putOi",  s.putOi,  20, 0);
+      check("oiStats", "totalOi", s.totalOi, 60, 0);
+      check("oiStats", "P/C OI ratio", s.putCallRatioOi, 20/40, 1e-12);
+    }
+
+    // ─── joinInstrumentsAndBook drops invalid rows ─────────────────────────
+    {
+      const inst = [
+        { instrument_name: "A", strike: 70000, option_type: "call", expiration_timestamp: expiry30d, contract_size: 1 },
+        { instrument_name: "B", strike: 70000, option_type: "put",  expiration_timestamp: expiry30d, contract_size: 1 },
+        { instrument_name: "EXPIRED", strike: 70000, option_type: "call", expiration_timestamp: NOW - 1000, contract_size: 1 },
+      ];
+      const book = [
+        { instrument_name: "A", mark_iv: 65,  open_interest: 10 },
+        { instrument_name: "B", mark_iv: 0,   open_interest: 5 },   // mark_iv=0 → drop
+        { instrument_name: "EXPIRED", mark_iv: 60, open_interest: 100 },
+      ];
+      const joined = joinInstrumentsAndBook(inst, book, NOW);
+      check("join", "kept count", joined.length, 1, 0);
+      check("join", "mark_iv normalized to decimal", joined[0].markIv, 0.65, 1e-12);
+    }
+
+    summary.innerHTML = `
+      <span class="${failed === 0 ? "text-teal-400" : "text-rose-500"} text-base font-bold">
+        ${failed === 0 ? "ALL " : ""}${passed} passed${failed ? `, ${failed} FAILED` : ""}
+      </span>
+      <span class="text-zinc-500"> (${passed + failed} total)</span>
+    `;
+  </script>
+</body>
+</html>
