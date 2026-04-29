@@ -11,18 +11,18 @@
 </head>
 <body class="bg-zinc-950 text-zinc-100 font-sans">
   <header class="border-b border-zinc-800 bg-zinc-950 sticky top-0 z-10">
-    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center gap-6">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center gap-6 flex-wrap">
       <h1 class="text-xl font-bold tracking-tight">
         Deribit BTC Options Dashboard
       </h1>
       <div class="flex-1"></div>
-      <span id="last-updated" class="font-mono text-xs text-zinc-400">never</span>
-      <button id="pause" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-100 px-3 py-1.5 rounded font-mono text-xs">
+      <span id="last-updated" aria-live="polite" class="font-mono text-xs text-zinc-400">never</span>
+      <button id="pause" type="button" aria-label="Toggle automatic refresh" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-100 px-3 py-1.5 rounded font-mono text-xs focus:outline-none focus:ring-2 focus:ring-teal-500">
         pause refresh
       </button>
-      <span id="api-budget" class="font-mono text-xs text-zinc-500"></span>
-      <a href="https://github.com/QuantMaverick/deribit-options-dashboard" class="text-zinc-400 hover:text-zinc-100 text-sm">GitHub</a>
-      <a href="docs/METHODOLOGY.md" class="text-zinc-400 hover:text-zinc-100 text-sm">Methodology</a>
+      <span id="api-budget" class="font-mono text-xs text-zinc-500" title="Cumulative Deribit API calls this session"></span>
+      <a href="https://github.com/QuantMaverick/deribit-options-dashboard" class="text-zinc-400 hover:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 rounded">GitHub</a>
+      <a href="docs/methodology.html" class="text-zinc-400 hover:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 rounded">Methodology</a>
     </div>
   </header>
 
@@ -70,8 +70,29 @@
     </section>
   </main>
 
-  <footer class="max-w-7xl mx-auto p-6 text-zinc-500 text-xs">
-    Phase 0 scaffold. <a class="underline" href="https://github.com/QuantMaverick/deribit-options-dashboard">Source</a>.
+  <footer class="max-w-7xl mx-auto p-6 text-zinc-500 text-xs space-y-1">
+    <p>
+      Browser-only · refreshes every 30s · all math computed locally — no backend.
+    </p>
+    <p>
+      <a class="underline hover:text-zinc-300" href="https://github.com/QuantMaverick/deribit-options-dashboard">Source on GitHub</a>
+      &nbsp;·&nbsp;
+      <a class="underline hover:text-zinc-300" href="docs/methodology.html">Methodology</a>
+      &nbsp;·&nbsp;
+      <a class="underline hover:text-zinc-300" href="tests/test_black_scholes.html">BS tests</a>
+      &nbsp;·&nbsp;
+      <a class="underline hover:text-zinc-300" href="tests/test_svi.html">SVI tests</a>
+      &nbsp;·&nbsp;
+      <a class="underline hover:text-zinc-300" href="tests/test_gex.html">GEX tests</a>
+      &nbsp;·&nbsp;
+      <a class="underline hover:text-zinc-300" href="tests/test_skew.html">Skew tests</a>
+      &nbsp;·&nbsp;
+      <a class="underline hover:text-zinc-300" href="tests/test_max_pain.html">Max-pain tests</a>
+    </p>
+    <p class="text-zinc-600">
+      Dealer-positioning sign convention is the SqueezeMetrics canonical assumption (+calls, −puts).
+      See <a class="underline" href="docs/methodology.html#3.3">Methodology §3.3</a> for caveats specific to Deribit's flow mix.
+    </p>
   </footer>
 
   <script type="module" src="js/main.js"></script>

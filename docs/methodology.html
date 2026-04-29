@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Methodology — Deribit BTC Options Dashboard</title>
+  <meta name="description" content="Mathematical methodology: Black-Scholes greeks, dealer GEX, SVI vol surface fit, ATM term structure, 25Δ skew, max pain. Honest about assumptions and limitations." />
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous" />
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" integrity="sha384-43gviWU0YVjaDtb/GhzOouOXtZMP/7XUzwPTstBeZFe/+rCMvRwr4yROQP43s0Xk" crossorigin="anonymous" onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+  <style>
+    .prose-quant { color: #d4d4d8; line-height: 1.7; max-width: 72ch; }
+    .prose-quant h1 { font-size: 1.875rem; font-weight: 700; color: #fafafa; margin: 2rem 0 1rem; }
+    .prose-quant h2 { font-size: 1.5rem;  font-weight: 700; color: #fafafa; margin: 2.5rem 0 0.75rem; padding-top: 1rem; border-top: 1px solid #27272a; }
+    .prose-quant h3 { font-size: 1.125rem; font-weight: 600; color: #fafafa; margin: 1.5rem 0 0.5rem; }
+    .prose-quant p { margin: 0.75rem 0; }
+    .prose-quant code { background: #18181b; padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.875em; color: #14b8a6; }
+    .prose-quant ul { list-style: disc; margin-left: 1.5rem; }
+    .prose-quant li { margin: 0.25rem 0; }
+    .prose-quant a { color: #14b8a6; text-decoration: underline; }
+    .prose-quant table { border-collapse: collapse; margin: 1rem 0; font-family: ui-monospace, monospace; font-size: 0.875rem; }
+    .prose-quant th, .prose-quant td { border: 1px solid #27272a; padding: 0.375rem 0.625rem; }
+    .prose-quant th { background: #18181b; color: #fafafa; }
+    .katex-display { background: #18181b; padding: 0.5rem; border-radius: 0.25rem; border-left: 2px solid #14b8a6; overflow-x: auto; }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans">
+  <header class="border-b border-zinc-800 bg-zinc-950 sticky top-0 z-10">
+    <div class="max-w-5xl mx-auto px-6 py-4 flex items-center gap-6">
+      <a href="../index.html" class="text-zinc-400 hover:text-zinc-100 text-sm">← Dashboard</a>
+      <h1 class="text-xl font-bold tracking-tight">Methodology</h1>
+      <div class="flex-1"></div>
+      <a href="https://github.com/QuantMaverick/deribit-options-dashboard" class="text-zinc-400 hover:text-zinc-100 text-sm">GitHub</a>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-6 py-8">
+    <article class="prose-quant">
+      <p class="text-zinc-400">
+        This document derives every formula computed in the dashboard. Written for someone who knows Black-Scholes and basic options microstructure but wants to verify the implementation matches their understanding. Honest about assumptions; explicit about limitations.
+      </p>
+
+      <h2>1. Black-Scholes greeks</h2>
+      <p>
+        Inputs: spot $S$, strike $K$, time-to-expiry $T$ (years), implied vol $\sigma$, risk-free rate $r$, dividend yield $q$. For BTC we set $r = q = 0$; see §1.4 below.
+      </p>
+      $$d_1 = \frac{\ln(S/K) + (r - q + \sigma^2/2)\,T}{\sigma\sqrt{T}}, \qquad d_2 = d_1 - \sigma\sqrt{T}$$
+
+      <h3>1.1 Gamma</h3>
+      $$\Gamma = \frac{e^{-qT}\,\varphi(d_1)}{S\sigma\sqrt{T}}$$
+      <p>
+        where $\varphi$ is the standard normal pdf. With $q = 0$ this reduces to $\varphi(d_1) / (S\sigma\sqrt{T})$, which is what <code>bsGamma()</code> implements in <code>js/black_scholes.js</code>.
+      </p>
+
+      <h3>1.2 Delta (call / put)</h3>
+      $$\Delta_{\text{call}} = e^{-qT}\,N(d_1), \qquad \Delta_{\text{put}} = e^{-qT}\,(N(d_1) - 1)$$
+      <p>
+        We need $\Delta$ to find the $25\Delta$ put and call for risk-reversal / butterfly construction. Deribit's <code>/public/get_book_summary_by_currency</code> does not return greeks, so we compute locally rather than burn an HTTP call per instrument.
+      </p>
+
+      <h3>1.3 Implementation note — N(x)</h3>
+      <p>
+        We use the Abramowitz-Stegun approximation 26.2.17 for $N(x)$ (max abs error $< 7.5 \times 10^{-8}$), which is sufficient for IV space. Verified in <a href="../tests/test_black_scholes.html">tests/test_black_scholes.html</a> against published Hull and Python erf-based reference values.
+      </p>
+
+      <h3>1.4 Why $r = 0$ for BTC</h3>
+      <p>
+        There is no canonical risk-free rate for crypto. Using a USD T-bill rate distorts forwards because the basis isn't financed at T-bill — it's financed at perpetual funding. Using a perp-funding-derived rate is unstable (negative on bear days, positive on bull days, mean-reverting on hours). Using $r = 0$ pushes the basis information into $F$ instead, where we compute it from observed Deribit futures prices. This is cleaner and more defensible than picking an arbitrary rate.
+      </p>
+
+      <h2>2. Forward F per expiry</h2>
+      <p>
+        For each option expiry $t_i$, we set the forward $F_i$ to the mark price of the BTC future expiring at the same timestamp. If no listed future matches the option expiry exactly, we linearly interpolate the futures curve in time.
+      </p>
+      <p>
+        This is critical for the SVI fit: log-moneyness is $k = \ln(K / F_i)$, not $\ln(K / S)$. Using spot would bias $k$ by the basis, which drifts smoothly in time and would shift every smile horizontally without changing its shape — but term-structure comparisons across expiries would become noisy.
+      </p>
+
+      <h2>3. Dealer Gamma Exposure (GEX)</h2>
+
+      <h3>3.1 Per-option contribution</h3>
+      $$\text{GEX}_i = \Gamma_i \cdot \text{OI}_i \cdot \text{contractSize} \cdot S^2 \cdot 0.01 \cdot \epsilon_i$$
+      <p>
+        where $\epsilon_i = +1$ for calls and $\epsilon_i = -1$ for puts (SqueezeMetrics canonical assumption: dealers are net short calls, net long puts).
+      </p>
+      <p>
+        The factor $S^2 \cdot 0.01$ converts $\Gamma$ (dollar-gamma per share per dollar move) to the conventional GEX unit — dollar gamma per 1% spot move.
+      </p>
+      <p>
+        For Deribit BTC options, <code>contractSize = 1 BTC</code>. OI is reported in contracts, so the product is already in BTC-denominated dollar exposure.
+      </p>
+
+      <h3>3.2 Aggregate by strike and zero-gamma flip</h3>
+      <p>
+        We sum $\text{GEX}_i$ across every live option at each strike, regardless of expiry, to get $\text{GEX}(K)$. The flip level is found by recomputing total GEX at hypothetical spot levels $S \in [0.80\,S_0, 1.20\,S_0]$ in 0.5% steps and locating the sign change. The flip is the spot at which dealers stop suppressing volatility (above flip → dealers long gamma → suppress; below → short gamma → amplify).
+      </p>
+
+      <h3>3.3 Honest limits</h3>
+      <ul>
+        <li>The SqueezeMetrics sign assumption was derived from SPX dealer flow circa 2015–2017. Deribit's user mix is materially different — more prop, more directional retail, fewer market-making banks. The sign of dealer positioning is genuinely less certain.</li>
+        <li>We surface this caveat in the README and let the operator weigh the conclusions.</li>
+        <li>An honest version of this dashboard for Deribit would estimate dealer position from market-maker quoting behavior. That's outside scope for a static portfolio piece.</li>
+      </ul>
+      <p>Citation: SqueezeMetrics, <em>The Implied Order Book and Gamma Exposure</em>, 2017.</p>
+
+      <h2>4. SVI implied vol surface</h2>
+
+      <h3>4.1 Raw parameterization (Gatheral 2004)</h3>
+      <p>For a single expiry $T$, total variance $w(k) = \sigma^2_{\text{IV}}(k) \cdot T$ is fit as</p>
+      $$w(k) = a + b\bigl(\rho\,(k - m) + \sqrt{(k - m)^2 + \sigma^2}\bigr)$$
+      <p>with five parameters $\{a, b, \rho, m, \sigma\}$ per expiry. Convex in $k$ when $b \ge 0$, $|\rho| < 1$, $\sigma > 0$.</p>
+
+      <h3>4.2 Fitting</h3>
+      <p>For each expiry we minimize</p>
+      $$L(\theta) = \sum_i \bigl(w_i^{\text{market}} - w(k_i;\theta)\bigr)^2 + \lambda \cdot P(\theta)$$
+      <p>where the penalty $P(\theta)$ enforces:</p>
+      <table>
+        <thead><tr><th>Constraint</th><th>Penalty term</th></tr></thead>
+        <tbody>
+          <tr><td>$b \ge 0$</td><td>$\max(0, -b)^2$</td></tr>
+          <tr><td>$|\rho| &lt; 1$</td><td>$\max(0, |\rho| - 0.999)^2$</td></tr>
+          <tr><td>$\sigma > 0$</td><td>$\max(0, 10^{-6} - \sigma)^2$</td></tr>
+          <tr><td>$a + b\sigma\sqrt{1-\rho^2} \ge 0$</td><td>$\max(0, -(a + b\sigma\sqrt{1-\rho^2}))^2$</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Optimizer: Nelder-Mead simplex, hand-implemented in <code>js/svi.js</code>. Initial simplex seeded from market-implied moments: $m_0 = \arg\min_k w_i$, $a_0 = \min_i w_i$, $b_0 = $ rough slope, $\rho_0 = -0.3$, $\sigma_0 = 0.1$.
+      </p>
+
+      <h3>4.3 Honest limits</h3>
+      <ul>
+        <li>For very short-dated expiries (&lt; 24h) the smile is dominated by gamma-kink dynamics and the SVI form fits poorly. Fit residuals are exposed in the per-expiry slice charts so the operator can see when the fit is unreliable.</li>
+        <li>Multi-expiry no-arbitrage (calendar / butterfly across expiries) is <strong>not</strong> enforced. We fit each expiry independently. This is the standard "raw SVI" practice; SSVI / surface SVI exists but is overkill for visual purposes.</li>
+      </ul>
+      <p>Citation: Gatheral, J., <em>A parsimonious arbitrage-free implied volatility parameterization</em>, 2004.</p>
+
+      <h2>5. ATM IV term structure</h2>
+      <p>For each expiry $T_i$ with fitted SVI parameters $\theta_i$, ATM IV is</p>
+      $$\sigma_{\text{ATM}}(T_i) = \sqrt{w(0; \theta_i) / T_i}$$
+      <p>i.e. evaluate the fitted total-variance curve at $k = 0$. We do <strong>not</strong> linearly interpolate market IVs at $k = 0$ because the at-the-money mark is not always on a listed strike (forward sits between two strikes), and using the SVI fit gives a smooth, mathematically consistent curve.</p>
+      <p>Plotted vs days-to-expiry on a log-x axis.</p>
+
+      <h2>6. 25Δ Risk-reversal and Butterfly</h2>
+      <p>For each expiry:</p>
+      <ol class="list-decimal ml-6">
+        <li>Compute $\Delta$ for every option using §1.2.</li>
+        <li>Find the put with $\arg\min_i |\Delta_i^{\text{put}} + 0.25|$ → call its IV $\sigma_{25\text{p}}$.</li>
+        <li>Find the call with $\arg\min_i |\Delta_i^{\text{call}} - 0.25|$ → call its IV $\sigma_{25\text{c}}$.</li>
+        <li>Compute:</li>
+      </ol>
+      $$\text{RR}_{25} = \sigma_{25\text{c}} - \sigma_{25\text{p}}$$
+      $$\text{BF}_{25} = \frac{\sigma_{25\text{c}} + \sigma_{25\text{p}}}{2} - \sigma_{\text{ATM}}$$
+      <p>Plot RR and BF as term structures across expiries.</p>
+      <p>
+        Convention reminder: by industry convention, "25Δ put" refers to the put whose magnitude of $\Delta$ is 0.25 — i.e., $\Delta = -0.25$. We use the absolute value when matching. Skew rejects expiries where the best-match strike is more than 0.15 away from $\pm 0.25$ (sparse strike grid means no credible 25Δ point).
+      </p>
+
+      <h2>7. Max pain</h2>
+      <p>For each expiry separately, candidate strikes $\{S^*\}$ are the listed strikes for that expiry. Total option-holder loss at expiry, were spot to land at $S^*$:</p>
+      $$\text{pain}(S^*) = \sum_{\text{calls}} \text{OI}_c \cdot \max(0,\, S^* - K_c) + \sum_{\text{puts}} \text{OI}_p \cdot \max(0,\, K_p - S^*)$$
+      <p>
+        Max-pain strike is $\arg\min_{S^*} \text{pain}(S^*)$ — the strike at which option holders collectively lose the most (and writers, by symmetry, retain the most premium). The bar chart shows pain across all candidate strikes; the argmin is annotated.
+      </p>
+      <p>
+        The "magnetism" interpretation that spot drifts toward max-pain is folklore, not a derivation. The chart is informative because the <em>shape</em> of $\text{pain}(S^*)$ tells you where dealer / writer P&amp;L is anchored, regardless of whether spot actually pins.
+      </p>
+
+      <h2>8. OI-weighted Put/Call ratio</h2>
+      <p>Per expiry and aggregate:</p>
+      $$\text{P/C} = \frac{\sum_{\text{puts}} \text{OI}_p}{\sum_{\text{calls}} \text{OI}_c}$$
+      <p>Reported on the context strip.</p>
+
+      <h2>9. Refresh and rate budget</h2>
+      <p>The dashboard refreshes every 30 seconds. Per refresh:</p>
+      <ul>
+        <li>1× <code>/public/get_index_price</code></li>
+        <li>1× <code>/public/get_book_summary_by_currency?kind=option</code></li>
+        <li>1× <code>/public/get_book_summary_by_currency?kind=future</code></li>
+        <li>1× <code>/public/get_instruments?kind=future</code> (lightly cached)</li>
+        <li>0× <code>/public/get_instruments?kind=option</code> (cached in sessionStorage for 5 min)</li>
+      </ul>
+      <p>
+        Total: 4 HTTP requests per 30s = 0.13 req/s, well under Deribit's public-tier limit. The header surfaces the cumulative call counter so the operator (or reviewer) can verify the budget at a glance.
+      </p>
+
+      <h2>10. Citations</h2>
+      <ul>
+        <li>Black, F. and Scholes, M. (1973). <em>The Pricing of Options and Corporate Liabilities</em>. Journal of Political Economy, 81(3): 637–654.</li>
+        <li>Gatheral, J. (2004). <em>A parsimonious arbitrage-free implied volatility parameterization with application to the valuation of volatility derivatives</em>. Madrid Quant Congress.</li>
+        <li>SqueezeMetrics (2017). <em>The Implied Order Book and Gamma Exposure</em>.</li>
+        <li>Hull, J. C. (2017). <em>Options, Futures, and Other Derivatives</em>, 11th edition. Pearson.</li>
+        <li>Nelder, J. A. and Mead, R. (1965). <em>A simplex method for function minimization</em>. The Computer Journal, 7(4): 308–313.</li>
+        <li>Abramowitz, M. and Stegun, I. (1964). <em>Handbook of Mathematical Functions</em>. National Bureau of Standards. (For the $N(x)$ approximation.)</li>
+      </ul>
+    </article>
+
+    <footer class="border-t border-zinc-800 mt-12 pt-6 text-zinc-500 text-sm">
+      <a class="hover:text-zinc-300" href="../index.html">← Back to dashboard</a>
+      &nbsp;·&nbsp;
+      <a class="hover:text-zinc-300" href="https://github.com/QuantMaverick/deribit-options-dashboard">Source on GitHub</a>
+    </footer>
+  </main>
+</body>
+</html>

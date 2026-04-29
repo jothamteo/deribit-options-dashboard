@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 480">
-  <rect width="1200" height="480" fill="#09090b"/>
-  <rect x="40" y="40" width="1120" height="60" fill="#18181b" stroke="#27272a"/>
-  <text x="60" y="78" font-family="ui-monospace, monospace" fill="#a1a1aa" font-size="18">Deribit BTC Options Dashboard — screenshot lands at Phase 6</text>
-  <rect x="40" y="120" width="540" height="320" fill="#18181b" stroke="#27272a"/>
-  <rect x="600" y="120" width="560" height="320" fill="#18181b" stroke="#27272a"/>
-  <text x="60" y="160" font-family="ui-monospace, monospace" fill="#71717a" font-size="14">GEX by strike</text>
-  <text x="620" y="160" font-family="ui-monospace, monospace" fill="#71717a" font-size="14">IV surface</text>
-</svg>
