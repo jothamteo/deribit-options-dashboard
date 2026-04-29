@@ -22,7 +22,7 @@ The math is the project. The polish is the cover. If a recruiter clicks `js/gex.
 |---|---|---|
 | Deribit REST client | ✅ Phase 0 | `js/deribit.js` |
 | Raw-data dump page | ✅ Phase 0 | `tests/test_deribit_dump.html` |
-| Black-Scholes pricing + greeks | ⏳ Phase 1 | `js/black_scholes.js` |
+| Black-Scholes pricing + greeks | ✅ Phase 1 | `js/black_scholes.js` |
 | Dealer GEX + zero-gamma flip | ⏳ Phase 2 | `js/gex.js` |
 | SVI per-expiry fit | ⏳ Phase 3 | `js/svi.js` |
 | 3D IV surface + slices | ⏳ Phase 3 | `js/plots/iv_surface.js` |
