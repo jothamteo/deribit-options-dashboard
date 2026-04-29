@@ -1,9 +1,6 @@
 /**
  * Entry point. Refresh loop, header, context strip, and per-feature dispatch.
  *
- * Phase 2 wires up the GEX panel + context strip. Later phases register
- * additional render hooks here.
- *
  * @module main
  */
 
@@ -11,6 +8,8 @@ import {
   getInstruments,
   getBookSummary,
   getIndexPrice,
+  getFutures,
+  getFuturesBookSummary,
   getCallStats,
 } from "./deribit.js";
 import {
@@ -20,10 +19,17 @@ import {
   findZeroGammaFlip,
   oiStats,
 } from "./gex.js";
+import { buildForwardCurve, forwardAt } from "./forwards.js";
+import { fitSvi } from "./svi.js";
+import { yearsToExpiry } from "./black_scholes.js";
 import {
   renderGexByStrike,
   renderGexVsSpot,
 } from "./plots/gex_chart.js";
+import {
+  renderIvSurface,
+  renderIvSlices,
+} from "./plots/iv_surface.js";
 
 const REFRESH_MS = 30_000;
 
@@ -33,7 +39,6 @@ const pauseBtn = document.getElementById("pause");
 const contextStrip = document.getElementById("context-strip");
 
 let paused = false;
-let lastSpot = NaN;
 
 pauseBtn.addEventListener("click", () => {
   paused = !paused;
@@ -85,19 +90,66 @@ function renderContextStrip(spot, oi, flip) {
   `;
 }
 
+/**
+ * Group options by expiry, fit SVI per expiry, and return slices ready for
+ * the IV surface and slice-grid renderers. Drops slices with < 5 points
+ * (not enough for a stable 5-param fit).
+ *
+ * @param {Array<import("./gex.js").OptionRow>} opts
+ * @param {Array<import("./forwards.js").FuturePoint>} fwdCurve
+ * @param {number} spot
+ * @param {number} nowMs
+ * @returns {Array<import("./plots/iv_surface.js").ExpirySlice>}
+ */
+function buildSlices(opts, fwdCurve, spot, nowMs) {
+  /** @type {Map<number, import("./plots/iv_surface.js").ExpirySlice>} */
+  const byExpiry = new Map();
+  for (const o of opts) {
+    const T = yearsToExpiry(o.expiration_ms, nowMs);
+    if (T <= 0) continue;
+    const F = forwardAt(fwdCurve, o.expiration_ms, spot);
+    if (!Number.isFinite(F) || F <= 0) continue;
+    const k = Math.log(o.strike / F);
+    const slice = byExpiry.get(o.expiration_ms) ?? {
+      expirationMs: o.expiration_ms,
+      T,
+      forward: F,
+      points: [],
+      svi: null,
+      fit: null,
+    };
+    slice.points.push({ k, iv: o.markIv, type: o.option_type, strike: o.strike });
+    byExpiry.set(o.expiration_ms, slice);
+  }
+
+  const slices = [...byExpiry.values()].sort((a, b) => a.expirationMs - b.expirationMs);
+  for (const s of slices) {
+    if (s.points.length < 5) continue;
+    // SVI fits total variance w(k) = IV² · T
+    const ptsW = s.points.map((p) => ({ k: p.k, w: p.iv * p.iv * s.T }));
+    const fit = fitSvi(ptsW);
+    s.svi = fit.params;
+    s.fit = { rmse: fit.rmse, maxResid: fit.maxResid };
+  }
+  return slices;
+}
+
 async function tick() {
   if (paused) return;
+  const t0 = performance.now();
   try {
-    const [spot, instruments, book] = await Promise.all([
+    const [spot, instruments, book, futureInst, futureBook] = await Promise.all([
       getIndexPrice(),
       getInstruments(),
       getBookSummary(),
+      getFutures(),
+      getFuturesBookSummary(),
     ]);
 
-    lastSpot = spot;
     const opts = joinInstrumentsAndBook(instruments, book);
     const oi = oiStats(opts);
 
+    // GEX
     const byStrike = gexByStrike(opts, spot);
     const curve = gexCurve(opts, spot);
     const flip = findZeroGammaFlip(curve);
@@ -106,8 +158,16 @@ async function tick() {
     renderGexByStrike("gex-by-strike", byStrike, { spot, flip });
     renderGexVsSpot("gex-vs-spot", curve, { spot, flip });
 
+    // IV surface
+    const fwdCurve = buildForwardCurve(futureInst, futureBook);
+    const nowMs = Date.now();
+    const slices = buildSlices(opts, fwdCurve, spot, nowMs);
+    renderIvSurface("iv-surface", slices, nowMs);
+    renderIvSlices("iv-slices", slices, nowMs);
+
+    const ms = (performance.now() - t0).toFixed(0);
     lastUpdated.textContent =
-      new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
+      `${new Date().toISOString().replace("T", " ").slice(0, 19)} UTC  (${ms}ms)`;
     lastUpdated.classList.remove("text-rose-500");
     lastUpdated.classList.add("text-zinc-400");
   } catch (err) {
@@ -118,7 +178,6 @@ async function tick() {
   }
 }
 
-// Kick off
 tick();
 setInterval(tick, REFRESH_MS);
 

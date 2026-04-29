@@ -24,8 +24,9 @@ The math is the project. The polish is the cover. If a recruiter clicks `js/gex.
 | Raw-data dump page | ✅ Phase 0 | `tests/test_deribit_dump.html` |
 | Black-Scholes pricing + greeks | ✅ Phase 1 | `js/black_scholes.js` |
 | Dealer GEX + zero-gamma flip | ✅ Phase 2 | `js/gex.js` |
-| SVI per-expiry fit | ⏳ Phase 3 | `js/svi.js` |
-| 3D IV surface + slices | ⏳ Phase 3 | `js/plots/iv_surface.js` |
+| SVI per-expiry fit | ✅ Phase 3 | `js/svi.js` |
+| 3D IV surface + slices | ✅ Phase 3 | `js/plots/iv_surface.js` |
+| Per-expiry forwards F | ✅ Phase 3 | `js/forwards.js` |
 | ATM IV term structure | ⏳ Phase 4 | `js/term_structure.js` |
 | 25Δ RR + BF | ⏳ Phase 4 | `js/skew.js` |
 | Max pain | ⏳ Phase 5 | `js/max_pain.js` |
