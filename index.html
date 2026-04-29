@@ -20,6 +20,22 @@
   <!-- Plotly is large (~4.5MB uncompressed). Defer so it doesn't block HTML
        parse; main.js waits for the load event before any Plotly.react call. -->
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8" defer></script>
+
+  <style>
+    /* Skeleton loading state inside chart containers. Sits as a child div
+       so the chart container itself stays a plain block — Plotly assumes
+       block layout when sizing its render. Plotly.purge() (which Plotly.react
+       calls implicitly) clears the .skel child on first render. */
+    .skel {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #52525b;
+      font-family: ui-monospace, "SF Mono", monospace;
+      font-size: 0.875rem;
+    }
+  </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100 font-sans">
   <header class="border-b border-zinc-800 bg-zinc-950 sticky top-0 z-10">
@@ -50,7 +66,7 @@
         <h2 class="text-lg font-semibold">Dealer Gamma Exposure</h2>
         <span class="text-xs text-zinc-500 font-mono">+calls, −puts (SqueezeMetrics canonical)</span>
       </div>
-      <div id="gex-by-strike" class="h-96 flex items-center justify-center text-zinc-600 font-mono text-sm">fetching options book…</div>
+      <div id="gex-by-strike" class="h-96"><div class="skel">fetching options book…</div></div>
       <div class="text-xs text-zinc-500 mt-1 font-mono">total GEX vs hypothetical spot — zero-gamma flip annotated</div>
       <div id="gex-vs-spot" class="h-72 mt-2"></div>
     </section>
@@ -58,7 +74,7 @@
     <!-- IV surface + per-expiry slices -->
     <section class="bg-zinc-900 border border-zinc-800 rounded p-4">
       <h2 class="text-lg font-semibold mb-2">Implied Volatility Surface</h2>
-      <div id="iv-surface" class="h-[28rem] flex items-center justify-center text-zinc-600 font-mono text-sm">fitting SVI per expiry…</div>
+      <div id="iv-surface" class="h-[28rem]"><div class="skel">fitting SVI per expiry…</div></div>
       <div id="iv-slices" class="mt-4"></div>
     </section>
 
@@ -66,11 +82,11 @@
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div class="bg-zinc-900 border border-zinc-800 rounded p-4">
         <h2 class="text-lg font-semibold mb-2">ATM IV term structure</h2>
-        <div id="term-structure" class="h-72 flex items-center justify-center text-zinc-600 font-mono text-sm">…</div>
+        <div id="term-structure" class="h-72"><div class="skel">…</div></div>
       </div>
       <div class="bg-zinc-900 border border-zinc-800 rounded p-4">
         <h2 class="text-lg font-semibold mb-2">25Δ Risk-reversal & Butterfly</h2>
-        <div id="skew" class="h-72 flex items-center justify-center text-zinc-600 font-mono text-sm">…</div>
+        <div id="skew" class="h-72"><div class="skel">…</div></div>
       </div>
     </section>
 
@@ -78,7 +94,7 @@
     <section class="bg-zinc-900 border border-zinc-800 rounded p-4">
       <h2 class="text-lg font-semibold mb-2">Max pain by expiry</h2>
       <div id="max-pain-tabs" class="flex gap-2 mb-3 flex-wrap"></div>
-      <div id="max-pain-chart" class="h-80 flex items-center justify-center text-zinc-600 font-mono text-sm">…</div>
+      <div id="max-pain-chart" class="h-80"><div class="skel">…</div></div>
     </section>
   </main>
 
