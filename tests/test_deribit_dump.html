@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Deribit raw-data dump</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans">
+  <main class="max-w-6xl mx-auto p-6 space-y-6">
+    <header>
+      <h1 class="text-2xl font-bold">Deribit raw-data dump</h1>
+      <p class="text-zinc-400 text-sm">
+        Phase-0 verification: confirms <code class="font-mono text-teal-400">js/deribit.js</code>
+        returns the shape we expect from each endpoint, before any math is built on top.
+      </p>
+    </header>
+
+    <section class="bg-zinc-900 border border-zinc-800 rounded p-4">
+      <div class="flex items-center gap-3 mb-3">
+        <button id="run" class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded font-mono text-sm">
+          Fetch all
+        </button>
+        <button id="clear-cache" class="bg-zinc-700 hover:bg-zinc-600 text-zinc-100 px-4 py-2 rounded font-mono text-sm">
+          Clear instruments cache
+        </button>
+        <span id="stats" class="font-mono text-xs text-zinc-400 ml-auto"></span>
+      </div>
+      <div id="out" class="font-mono text-xs whitespace-pre-wrap text-zinc-300"></div>
+    </section>
+  </main>
+
+  <script type="module">
+    import {
+      getInstruments,
+      getBookSummary,
+      getIndexPrice,
+      getFutures,
+      getFuturesBookSummary,
+      getTicker,
+      getCallStats,
+      clearInstrumentsCache,
+    } from "../js/deribit.js";
+
+    const out = document.getElementById("out");
+    const stats = document.getElementById("stats");
+
+    /** @param {string} s */
+    const log = (s) => { out.textContent += s + "\n"; };
+
+    function refreshStats() {
+      const s = getCallStats();
+      stats.textContent = `calls=${s.totalCalls}  errors=${s.errors}  last=${s.lastCallTs ? new Date(s.lastCallTs).toISOString() : "—"}`;
+    }
+
+    document.getElementById("clear-cache").addEventListener("click", () => {
+      clearInstrumentsCache();
+      log("[cache] cleared");
+    });
+
+    document.getElementById("run").addEventListener("click", async () => {
+      out.textContent = "";
+      try {
+        log("--- /public/get_index_price ---");
+        const spot = await getIndexPrice();
+        log(`BTC index = ${spot}`);
+        refreshStats();
+
+        log("\n--- /public/get_instruments (options) ---");
+        const insts = await getInstruments();
+        log(`count = ${insts.length}`);
+        log(`first = ${JSON.stringify(insts[0], null, 2)}`);
+        const expiries = [...new Set(insts.map((i) => i.expiration_timestamp))].sort();
+        log(`unique expiries = ${expiries.length}`);
+        log(`expiry range = ${new Date(expiries[0]).toISOString()} → ${new Date(expiries[expiries.length-1]).toISOString()}`);
+        refreshStats();
+
+        log("\n--- /public/get_book_summary_by_currency (options) ---");
+        const book = await getBookSummary();
+        log(`count = ${book.length}`);
+        log(`first = ${JSON.stringify(book[0], null, 2)}`);
+        const withIv = book.filter((b) => b.mark_iv != null && b.open_interest > 0);
+        log(`rows with mark_iv and OI > 0 = ${withIv.length}`);
+        refreshStats();
+
+        log("\n--- /public/get_instruments (futures) ---");
+        const futs = await getFutures();
+        log(`count = ${futs.length}`);
+        log(`first = ${JSON.stringify(futs[0], null, 2)}`);
+        refreshStats();
+
+        log("\n--- /public/get_book_summary_by_currency (futures) ---");
+        const futBook = await getFuturesBookSummary();
+        log(`count = ${futBook.length}`);
+        log(`first = ${JSON.stringify(futBook[0], null, 2)}`);
+        refreshStats();
+
+        log("\n--- /public/ticker (single instrument) ---");
+        const sample = insts.find((i) => i.option_type === "call") || insts[0];
+        const tk = await getTicker(sample.instrument_name);
+        log(`instrument = ${sample.instrument_name}`);
+        log(`greeks = ${JSON.stringify(tk.greeks, null, 2)}`);
+        log(`mark_iv = ${tk.mark_iv}`);
+        refreshStats();
+
+        log("\nALL ENDPOINTS OK");
+      } catch (err) {
+        log(`\nERROR: ${err.message}`);
+        refreshStats();
+      }
+    });
+  </script>
+</body>
+</html>
