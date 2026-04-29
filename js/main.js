@@ -30,6 +30,12 @@ import {
   renderIvSurface,
   renderIvSlices,
 } from "./plots/iv_surface.js";
+import { atmTermStructure } from "./term_structure.js";
+import { skewTermStructure } from "./skew.js";
+import {
+  renderAtmTermStructure,
+  renderSkewTermStructure,
+} from "./plots/term_structure_chart.js";
 
 const REFRESH_MS = 30_000;
 
@@ -171,14 +177,21 @@ async function tick() {
       throw err;
     });
 
-  // ── IV surface render path (needs futures additionally) ────────────────
+  // ── IV surface + term structure + skew render path (needs futures) ─────
   const ivPromise = Promise.all([gexPromise, futInstP, futBookP])
     .then(([{ spot, opts }, futureInst, futureBook]) => {
       const fwdCurve = buildForwardCurve(futureInst, futureBook);
       const nowMs = Date.now();
       const slices = buildSlices(opts, fwdCurve, spot, nowMs);
+
       renderIvSurface("iv-surface", slices, nowMs);
       renderIvSlices("iv-slices", slices, nowMs);
+
+      // Term structure + 25Δ skew — both derived from the same fitted slices
+      const term = atmTermStructure(slices, nowMs);
+      const skew = skewTermStructure(slices, spot, nowMs);
+      renderAtmTermStructure("term-structure", term);
+      renderSkewTermStructure("skew", skew);
     })
     .catch((err) => {
       console.error("IV render failed:", err);

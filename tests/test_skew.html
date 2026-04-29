@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Term structure & skew — tests</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans">
+  <main class="max-w-5xl mx-auto p-6 space-y-4">
+    <header>
+      <h1 class="text-2xl font-bold">Term structure & 25Δ skew — tests</h1>
+      <p class="text-zinc-400 text-sm">
+        Synthetic-slice tests for <code class="font-mono text-teal-400">js/term_structure.js</code>
+        and <code class="font-mono text-teal-400">js/skew.js</code>.
+      </p>
+    </header>
+
+    <section id="summary" class="font-mono text-sm"></section>
+
+    <table class="w-full text-sm font-mono">
+      <thead class="text-zinc-400 border-b border-zinc-800">
+        <tr>
+          <th class="text-left py-2">Case</th>
+          <th class="text-left">Quantity</th>
+          <th class="text-right">Got</th>
+          <th class="text-right">Expected</th>
+          <th class="text-right">Δ (abs)</th>
+          <th class="text-right">Tol</th>
+          <th class="text-center">PASS</th>
+        </tr>
+      </thead>
+      <tbody id="results"></tbody>
+    </table>
+  </main>
+
+  <script type="module">
+    import { atmTermStructure } from "../js/term_structure.js";
+    import { skewTermStructure } from "../js/skew.js";
+    import { sviIv, svi } from "../js/svi.js";
+    import { bsDelta } from "../js/black_scholes.js";
+
+    const results = document.getElementById("results");
+    const summary = document.getElementById("summary");
+    let passed = 0, failed = 0;
+
+    function check(caseName, qty, got, expected, tol) {
+      const d = Math.abs(got - expected);
+      const ok = d <= tol;
+      ok ? passed++ : failed++;
+      const row = document.createElement("tr");
+      row.className = "border-b border-zinc-900";
+      row.innerHTML = `
+        <td class="py-1.5 text-zinc-300">${caseName}</td>
+        <td class="text-zinc-300">${qty}</td>
+        <td class="text-right">${typeof got === "number" ? got.toExponential(4) : got}</td>
+        <td class="text-right">${typeof expected === "number" ? expected.toExponential(4) : expected}</td>
+        <td class="text-right ${ok ? "text-zinc-500" : "text-rose-400"}">${d.toExponential(2)}</td>
+        <td class="text-right text-zinc-500">${tol.toExponential(0)}</td>
+        <td class="text-center ${ok ? "text-teal-400" : "text-rose-500 font-bold"}">${ok ? "PASS" : "FAIL"}</td>
+      `;
+      results.appendChild(row);
+    }
+
+    const NOW = Date.UTC(2026, 0, 1);
+    const day = 86400 * 1000;
+
+    // ─── Build a synthetic slice with known SVI, then build option points
+    //     by sampling the SVI curve as if those were market mids ─────────────
+    function makeSlice(daysToExpiry, sviParams, F, spot, strikes) {
+      const T = daysToExpiry / 365.25;
+      const points = [];
+      for (const K of strikes) {
+        const k = Math.log(K / F);
+        const iv = sviIv(k, sviParams, T);
+        // For each strike, generate both call and put using the same IV
+        // (SVI is moneyness-driven, doesn't distinguish call/put).
+        points.push({ k, iv, type: "call", strike: K });
+        points.push({ k, iv, type: "put",  strike: K });
+      }
+      return {
+        expirationMs: NOW + daysToExpiry * day,
+        T,
+        forward: F,
+        points,
+        svi: sviParams,
+        fit: { rmse: 0, maxResid: 0 },
+      };
+    }
+
+    // ─── atmTermStructure: ATM IV = √(w(0)/T) ──────────────────────────────
+    {
+      const params = { a: 0.04, b: 0.4, rho: -0.5, m: 0, sigma: 0.1 };
+      // T = 30/365.25, w(0) = 0.08, ATM IV = √(0.08 / (30/365.25)) = √0.974 = 0.9869
+      const slice = makeSlice(30, params, 70000, 70000, [60000, 65000, 70000, 75000, 80000]);
+      const term = atmTermStructure([slice], NOW);
+      check("atmTerm", "row count", term.length, 1, 0);
+      check("atmTerm", "dte = 30",  term[0].dte, 30, 1e-9);
+      const expected = Math.sqrt(0.08 / (30/365.25));
+      check("atmTerm", "atmIv = √(w(0)/T)", term[0].atmIv, expected, 1e-9);
+    }
+
+    // Multi-expiry sort
+    {
+      const params = { a: 0.04, b: 0.4, rho: -0.5, m: 0, sigma: 0.1 };
+      const s1 = makeSlice(60, params, 70000, 70000, [60000, 70000, 80000, 90000, 100000]);
+      const s2 = makeSlice(7, params,  70000, 70000, [60000, 70000, 80000, 90000, 100000]);
+      const s3 = makeSlice(30, params, 70000, 70000, [60000, 70000, 80000, 90000, 100000]);
+      const term = atmTermStructure([s1, s2, s3], NOW);
+      check("atmTerm", "sort: 1st = 7d",  term[0].dte, 7, 1e-9);
+      check("atmTerm", "sort: 2nd = 30d", term[1].dte, 30, 1e-9);
+      check("atmTerm", "sort: 3rd = 60d", term[2].dte, 60, 1e-9);
+    }
+
+    // Skip slices with no SVI fit
+    {
+      const params = { a: 0.04, b: 0.4, rho: -0.5, m: 0, sigma: 0.1 };
+      const fitted = makeSlice(30, params, 70000, 70000, [60000, 70000, 80000, 90000, 100000]);
+      const unfitted = { ...fitted, svi: null };
+      const term = atmTermStructure([fitted, unfitted], NOW);
+      check("atmTerm", "skip null-svi slice", term.length, 1, 0);
+    }
+
+    // ─── skewTermStructure: 25Δ matching ───────────────────────────────────
+    // Construct a slice where strike grid has clear 25Δ matches
+    {
+      // Symmetric SVI around k=0 (rho=0) → smile is symmetric → 25Δ put IV
+      // ≈ 25Δ call IV → RR ≈ 0
+      const symParams = { a: 0.04, b: 0.4, rho: 0, m: 0, sigma: 0.2 };
+      const F = 70000, spot = 70000;
+      const strikes = [50000, 55000, 60000, 65000, 67500, 70000, 72500, 75000, 80000, 85000, 90000];
+      const slice = makeSlice(30, symParams, F, spot, strikes);
+      const skew = skewTermStructure([slice], spot, NOW);
+      check("skew", "row count", skew.length, 1, 0);
+      // For symmetric smile, the 25Δ call and 25Δ put IVs should be equal
+      check("skew", "symmetric smile → RR ≈ 0", skew[0].rr, 0, 1e-3);
+      // Both IVs should be > ATM IV (symmetric smile rises away from ATM)
+      check("skew", "BF > 0 for smile", skew[0].bf > 0 ? 1 : 0, 1, 0);
+      // Sanity: matched deltas are within reason of ±0.25
+      check("skew", "|Δ_call − 0.25| ≤ 0.10", Math.abs(skew[0].deltaCall - 0.25), 0, 0.10);
+      check("skew", "|Δ_put + 0.25| ≤ 0.10", Math.abs(skew[0].deltaPut + 0.25), 0, 0.10);
+    }
+
+    // Skewed smile (rho < 0 → puts more expensive than calls → RR < 0)
+    {
+      const skewedParams = { a: 0.04, b: 0.4, rho: -0.7, m: 0, sigma: 0.2 };
+      const F = 70000, spot = 70000;
+      const strikes = [50000, 55000, 60000, 65000, 67500, 70000, 72500, 75000, 80000, 85000, 90000];
+      const slice = makeSlice(30, skewedParams, F, spot, strikes);
+      const skew = skewTermStructure([slice], spot, NOW);
+      // ρ<0 → IV(k<0) > IV(k>0) → puts (low strikes) priced higher → IV_25p > IV_25c → RR < 0
+      check("skew", "ρ<0 → RR < 0", skew[0].rr < 0 ? 1 : 0, 1, 0);
+      // BF should still be > 0 (smile still curves up away from ATM)
+      check("skew", "ρ<0 → BF > 0", skew[0].bf > 0 ? 1 : 0, 1, 0);
+    }
+
+    // Reject sparse strike grid where no strike is close to 25Δ
+    {
+      const params = { a: 0.04, b: 0.4, rho: -0.5, m: 0, sigma: 0.2 };
+      const F = 70000, spot = 70000;
+      // Only ATM strikes — won't have anything close to 25Δ
+      const strikes = [69000, 70000, 71000];
+      const slice = makeSlice(30, params, F, spot, strikes);
+      const skew = skewTermStructure([slice], spot, NOW);
+      check("skew", "sparse grid → reject", skew.length, 0, 0);
+    }
+
+    // No SVI fit → skip
+    {
+      const params = { a: 0.04, b: 0.4, rho: -0.5, m: 0, sigma: 0.2 };
+      const F = 70000, spot = 70000;
+      const strikes = [55000, 60000, 65000, 70000, 75000, 80000, 85000];
+      const slice = makeSlice(30, params, F, spot, strikes);
+      slice.svi = null;
+      const skew = skewTermStructure([slice], spot, NOW);
+      check("skew", "no svi → skip", skew.length, 0, 0);
+    }
+
+    // ─── BS-delta sanity inside skew matching ──────────────────────────────
+    // Verify at one anchor: spot=70k, K=72.5k, T=30/365.25, σ such that
+    // 25Δ matches. Just check that bsDelta returns a sensible call delta < 0.5.
+    {
+      const T = 30/365.25;
+      const dCall = bsDelta(70000, 72500, T, 0.5, "call");
+      check("BS delta", "OTM call < 0.5", dCall < 0.5 ? 1 : 0, 1, 0);
+      const dPut  = bsDelta(70000, 67500, T, 0.5, "put");
+      check("BS delta", "OTM put > -0.5", dPut > -0.5 ? 1 : 0, 1, 0);
+    }
+
+    summary.innerHTML = `
+      <span class="${failed === 0 ? "text-teal-400" : "text-rose-500"} text-base font-bold">
+        ${failed === 0 ? "ALL " : ""}${passed} passed${failed ? `, ${failed} FAILED` : ""}
+      </span>
+      <span class="text-zinc-500"> (${passed + failed} total)</span>
+    `;
+  </script>
+</body>
+</html>
