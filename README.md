@@ -29,7 +29,7 @@ The math is the project. The polish is the cover. If a recruiter clicks `js/gex.
 | Per-expiry forwards F | ✅ Phase 3 | `js/forwards.js` |
 | ATM IV term structure | ✅ Phase 4 | `js/term_structure.js` |
 | 25Δ RR + BF | ✅ Phase 4 | `js/skew.js` |
-| Max pain | ⏳ Phase 5 | `js/max_pain.js` |
+| Max pain | ✅ Phase 5 | `js/max_pain.js` |
 
 ## Math
 

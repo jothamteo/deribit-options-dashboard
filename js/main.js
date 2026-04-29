@@ -36,6 +36,8 @@ import {
   renderAtmTermStructure,
   renderSkewTermStructure,
 } from "./plots/term_structure_chart.js";
+import { maxPainPerExpiry } from "./max_pain.js";
+import { renderMaxPain } from "./plots/max_pain_chart.js";
 
 const REFRESH_MS = 30_000;
 
@@ -59,6 +61,71 @@ function renderApiBudget() {
 }
 setInterval(renderApiBudget, 1000);
 renderApiBudget();
+
+// Max-pain UI state — kept across ticks so the active tab survives a refresh.
+let mpActiveExpiryMs = null;
+let mpLastExpirySet = "";
+let mpLastSpot = NaN;
+/** @type {Array<import("./max_pain.js").ExpiryPain>} */
+let mpLastSlices = [];
+
+function renderMaxPainPanel(painSlices, spot) {
+  mpLastSlices = painSlices;
+  mpLastSpot = spot;
+
+  const tabsEl = document.getElementById("max-pain-tabs");
+  const chartEl = document.getElementById("max-pain-chart");
+  if (!tabsEl || !chartEl) return;
+
+  if (painSlices.length === 0) {
+    tabsEl.innerHTML = "";
+    chartEl.innerHTML = `<div class="text-zinc-500 text-sm font-mono p-4">no expiries with options</div>`;
+    return;
+  }
+
+  // Default active expiry: the nearest one (first in sorted order)
+  if (mpActiveExpiryMs == null || !painSlices.find((p) => p.expirationMs === mpActiveExpiryMs)) {
+    mpActiveExpiryMs = painSlices[0].expirationMs;
+  }
+
+  // Only rebuild tab DOM if the expiry set changed (avoid flicker)
+  const expirySetKey = painSlices.map((p) => p.expirationMs).join(",");
+  if (expirySetKey !== mpLastExpirySet) {
+    tabsEl.innerHTML = "";
+    for (const p of painSlices) {
+      const btn = document.createElement("button");
+      btn.dataset.exp = String(p.expirationMs);
+      btn.className = "px-2.5 py-1 rounded font-mono text-xs border border-zinc-800";
+      btn.textContent = `${p.dte.toFixed(1)}d`;
+      btn.title = new Date(p.expirationMs).toISOString();
+      btn.addEventListener("click", () => {
+        mpActiveExpiryMs = p.expirationMs;
+        applyMaxPainTabs();
+        const active = mpLastSlices.find((s) => s.expirationMs === mpActiveExpiryMs);
+        if (active) renderMaxPain("max-pain-chart", active, mpLastSpot);
+      });
+      tabsEl.appendChild(btn);
+    }
+    mpLastExpirySet = expirySetKey;
+  }
+  applyMaxPainTabs();
+
+  const active = painSlices.find((p) => p.expirationMs === mpActiveExpiryMs);
+  if (active) renderMaxPain("max-pain-chart", active, spot);
+}
+
+function applyMaxPainTabs() {
+  const tabsEl = document.getElementById("max-pain-tabs");
+  if (!tabsEl) return;
+  for (const btn of tabsEl.querySelectorAll("button")) {
+    const isActive = Number(btn.dataset.exp) === mpActiveExpiryMs;
+    btn.classList.toggle("bg-violet-600", isActive);
+    btn.classList.toggle("text-white", isActive);
+    btn.classList.toggle("bg-zinc-900", !isActive);
+    btn.classList.toggle("text-zinc-400", !isActive);
+    btn.classList.toggle("hover:bg-zinc-800", !isActive);
+  }
+}
 
 function renderContextStrip(spot, oi, flip) {
   const pct = (n) => Number.isFinite(n) ? n.toFixed(2) : "—";
@@ -166,9 +233,18 @@ async function tick() {
       const curve = gexCurve(opts, spot);
       const flip = findZeroGammaFlip(curve);
 
+      // Max pain — only depends on options + spot, no SVI/futures
+      const nowMs = Date.now();
+      const painSlices = maxPainPerExpiry(opts, nowMs);
+      // Annotate the GEX bar chart with the nearest-expiry max-pain strike —
+      // most actionable single number for the typical reader.
+      const nearestMaxPain = painSlices.length > 0 ? painSlices[0].maxPainStrike : null;
+
       renderContextStrip(spot, oi, flip);
-      renderGexByStrike("gex-by-strike", byStrike, { spot, flip });
+      renderGexByStrike("gex-by-strike", byStrike, { spot, flip, maxPain: nearestMaxPain });
       renderGexVsSpot("gex-vs-spot", curve, { spot, flip });
+      renderMaxPainPanel(painSlices, spot);
+
       return { spot, opts };
     })
     .catch((err) => {

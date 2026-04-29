@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Max pain — tests</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans">
+  <main class="max-w-5xl mx-auto p-6 space-y-4">
+    <header>
+      <h1 class="text-2xl font-bold">Max pain — browser tests</h1>
+      <p class="text-zinc-400 text-sm">
+        Hand-computed reference cases for <code class="font-mono text-teal-400">js/max_pain.js</code>.
+      </p>
+    </header>
+
+    <section id="summary" class="font-mono text-sm"></section>
+
+    <table class="w-full text-sm font-mono">
+      <thead class="text-zinc-400 border-b border-zinc-800">
+        <tr>
+          <th class="text-left py-2">Case</th>
+          <th class="text-left">Quantity</th>
+          <th class="text-right">Got</th>
+          <th class="text-right">Expected</th>
+          <th class="text-right">Δ (abs)</th>
+          <th class="text-right">Tol</th>
+          <th class="text-center">PASS</th>
+        </tr>
+      </thead>
+      <tbody id="results"></tbody>
+    </table>
+  </main>
+
+  <script type="module">
+    import { painAt, maxPainPerExpiry } from "../js/max_pain.js";
+
+    const results = document.getElementById("results");
+    const summary = document.getElementById("summary");
+    let passed = 0, failed = 0;
+
+    function check(caseName, qty, got, expected, tol) {
+      const d = Math.abs(got - expected);
+      const ok = d <= tol;
+      ok ? passed++ : failed++;
+      const row = document.createElement("tr");
+      row.className = "border-b border-zinc-900";
+      row.innerHTML = `
+        <td class="py-1.5 text-zinc-300">${caseName}</td>
+        <td class="text-zinc-300">${qty}</td>
+        <td class="text-right">${typeof got === "number" ? got.toExponential(4) : got}</td>
+        <td class="text-right">${typeof expected === "number" ? expected.toExponential(4) : expected}</td>
+        <td class="text-right ${ok ? "text-zinc-500" : "text-rose-400"}">${typeof d === "number" ? d.toExponential(2) : d}</td>
+        <td class="text-right text-zinc-500">${tol.toExponential(0)}</td>
+        <td class="text-center ${ok ? "text-teal-400" : "text-rose-500 font-bold"}">${ok ? "PASS" : "FAIL"}</td>
+      `;
+      results.appendChild(row);
+    }
+
+    const NOW = Date.UTC(2026, 0, 1);
+    const day = 86400 * 1000;
+    const exp30 = NOW + 30 * day;
+
+    // Toy book: 3 strikes (90, 100, 110), specific OI distribution
+    // Pain at S*=90:
+    //   call: max(0, 90-K)·OI for K∈{90,100,110} = 0
+    //   put:  max(0, K-90)·OI for K∈{90,100,110} = 0·15 + 10·25 + 20·5 = 350
+    //   total = 350
+    // Pain at S*=100:
+    //   call: 10·10 + 0 + 0 = 100
+    //   put:  0 + 0 + 10·5 = 50
+    //   total = 150
+    // Pain at S*=110:
+    //   call: 20·10 + 10·20 + 0 = 200 + 200 = 400
+    //   put:  0 + 0 + 0 = 0
+    //   total = 400
+    // argmin = 100 with pain 150
+    {
+      const group = [
+        { instrument_name:"A", strike:90,  option_type:"call", expiration_ms:exp30, oi:10, markIv:0.5, contractSize:1 },
+        { instrument_name:"B", strike:100, option_type:"call", expiration_ms:exp30, oi:20, markIv:0.5, contractSize:1 },
+        { instrument_name:"C", strike:110, option_type:"call", expiration_ms:exp30, oi:30, markIv:0.5, contractSize:1 },
+        { instrument_name:"D", strike:90,  option_type:"put",  expiration_ms:exp30, oi:15, markIv:0.5, contractSize:1 },
+        { instrument_name:"E", strike:100, option_type:"put",  expiration_ms:exp30, oi:25, markIv:0.5, contractSize:1 },
+        { instrument_name:"F", strike:110, option_type:"put",  expiration_ms:exp30, oi:5,  markIv:0.5, contractSize:1 },
+      ];
+      check("painAt", "S*=90  → 350",  painAt(group, 90),  350, 0);
+      check("painAt", "S*=100 → 150",  painAt(group, 100), 150, 0);
+      check("painAt", "S*=110 → 400",  painAt(group, 110), 400, 0);
+
+      const result = maxPainPerExpiry(group, NOW);
+      check("perExpiry", "row count", result.length, 1, 0);
+      check("perExpiry", "max-pain strike", result[0].maxPainStrike, 100, 0);
+      check("perExpiry", "max-pain value",  result[0].maxPainValue, 150, 0);
+      check("perExpiry", "totalCallOi",     result[0].totalCallOi, 60, 0);
+      check("perExpiry", "totalPutOi",      result[0].totalPutOi, 45, 0);
+      check("perExpiry", "curve length",    result[0].curve.length, 3, 0);
+      check("perExpiry", "curve sorted",    result[0].curve[0].strike, 90, 0);
+      check("perExpiry", "dte",             result[0].dte, 30, 1e-9);
+    }
+
+    // ─── Symmetric book: equal call/put OI at every strike → max pain ≈ ATM ─
+    {
+      const exp7 = NOW + 7 * day;
+      const strikes = [90, 95, 100, 105, 110];
+      const group = [];
+      for (const K of strikes) {
+        group.push({ instrument_name:`C${K}`, strike:K, option_type:"call", expiration_ms:exp7, oi:10, markIv:0.5, contractSize:1 });
+        group.push({ instrument_name:`P${K}`, strike:K, option_type:"put",  expiration_ms:exp7, oi:10, markIv:0.5, contractSize:1 });
+      }
+      const result = maxPainPerExpiry(group, NOW);
+      // Symmetric → minimum at the centre
+      check("symmetric", "max-pain strike = 100", result[0].maxPainStrike, 100, 0);
+    }
+
+    // ─── Multi-expiry: each expiry computed independently ───────────────────
+    {
+      const exp7 = NOW + 7 * day;
+      const exp30 = NOW + 30 * day;
+      const group = [
+        // 7d expiry: max pain pulled toward 105 by big call OI at 110
+        { instrument_name:"a", strike:100, option_type:"call", expiration_ms:exp7, oi:5,  markIv:0.5, contractSize:1 },
+        { instrument_name:"b", strike:110, option_type:"call", expiration_ms:exp7, oi:50, markIv:0.5, contractSize:1 },
+        { instrument_name:"c", strike:100, option_type:"put",  expiration_ms:exp7, oi:20, markIv:0.5, contractSize:1 },
+        { instrument_name:"d", strike:110, option_type:"put",  expiration_ms:exp7, oi:5,  markIv:0.5, contractSize:1 },
+        // 30d expiry: max pain at 100 (heavy put OI at 110 attracts spot down)
+        { instrument_name:"e", strike:100, option_type:"call", expiration_ms:exp30, oi:30, markIv:0.5, contractSize:1 },
+        { instrument_name:"f", strike:100, option_type:"put",  expiration_ms:exp30, oi:30, markIv:0.5, contractSize:1 },
+      ];
+      const result = maxPainPerExpiry(group, NOW);
+      check("multi-exp", "expiry count", result.length, 2, 0);
+      check("multi-exp", "sorted by exp[0].dte", result[0].dte, 7, 1e-9);
+      check("multi-exp", "sorted by exp[1].dte", result[1].dte, 30, 1e-9);
+    }
+
+    // ─── Empty input handling ───────────────────────────────────────────────
+    {
+      check("empty", "[] → no rows", maxPainPerExpiry([], NOW).length, 0, 0);
+    }
+
+    summary.innerHTML = `
+      <span class="${failed === 0 ? "text-teal-400" : "text-rose-500"} text-base font-bold">
+        ${failed === 0 ? "ALL " : ""}${passed} passed${failed ? `, ${failed} FAILED` : ""}
+      </span>
+      <span class="text-zinc-500"> (${passed + failed} total)</span>
+    `;
+  </script>
+</body>
+</html>
