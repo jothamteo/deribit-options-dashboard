@@ -46,11 +46,13 @@ Every formula on the dashboard is derived in **[Methodology](docs/methodology.ht
 
 ## Performance
 
-- **Cold load**: ~2s to first plot on broadband.
-- **Steady-state per refresh**: 4 HTTP calls (index price, options book summary, futures book summary, futures instruments). Options instruments cached 5min in sessionStorage. Total ~0.13 req/s — well under Deribit's public rate limit.
-- **CPU per tick**: ~50–150 ms typical (~1500 options × 81 hypothetical-spot scan for GEX curve, plus ~10 expiries × 5-param Nelder-Mead SVI fit).
-- **Memory**: < 50 MB resident.
+- **Cold load**: ~1.5–2 s to first plot on broadband. `<link rel="preconnect">` to Deribit and the CDNs warms TCP+TLS during HTML parse.
+- **Steady-state per refresh**: 3 HTTP calls (index price, options book summary, futures book summary). Both instruments lists cached 5 min in sessionStorage. Total ~0.10 req/s — well under Deribit's public limit.
+- **CPU per tick**: ~30–80 ms typical (~1500 options × 41-point GEX scan, plus ~10 expiries × Nelder-Mead SVI fit). Halved from Phase 5 by tightening the GEX scan grid (1 % steps; the linear interp in `findZeroGammaFlip` resolves below grid spacing anyway).
+- **Render order**: cheap 2D charts paint first (GEX, slice grid, term structure, RR/BF, max pain); the heavy 3D IV surface is deferred to the next animation frame so it never blocks above-fold paint.
 - **Progressive render**: GEX paints from the first 3 fetches; IV surface and skew paint after futures resolve. A failing futures call doesn't blank out GEX.
+- **Plotly is `defer`-loaded** so it doesn't block HTML parse; main.js polls `window.Plotly` before any `Plotly.react` call, with a 10 s timeout.
+- **Memory**: < 50 MB resident.
 
 ## Limitations (read this before drawing conclusions)
 

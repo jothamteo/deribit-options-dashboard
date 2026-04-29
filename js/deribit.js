@@ -14,6 +14,7 @@
 const BASE_URL = "https://www.deribit.com/api/v2";
 
 const INSTRUMENTS_CACHE_KEY = "deribit:instruments:BTC:option";
+const FUTURES_INSTRUMENTS_CACHE_KEY = "deribit:instruments:BTC:future";
 const INSTRUMENTS_TTL_MS = 5 * 60 * 1000;
 
 const _stats = { totalCalls: 0, lastCallTs: 0, errors: 0 };
@@ -112,16 +113,31 @@ export async function getIndexPrice() {
 
 /**
  * List of live BTC futures, used to extract per-expiry forward prices for SVI
- * log-moneyness k = log(K/F).
+ * log-moneyness k = log(K/F). Cached in sessionStorage for 5 min — futures
+ * listings only change at quarterly roll, so refetching every 30s is wasteful.
  *
  * @returns {Promise<Array<object>>}
  */
 export async function getFutures() {
-  return _get("/public/get_instruments", {
+  const cached = sessionStorage.getItem(FUTURES_INSTRUMENTS_CACHE_KEY);
+  if (cached) {
+    try {
+      const { ts, data } = JSON.parse(cached);
+      if (Date.now() - ts < INSTRUMENTS_TTL_MS) return data;
+    } catch {
+      /* fall through */
+    }
+  }
+  const data = await _get("/public/get_instruments", {
     currency: "BTC",
     kind: "future",
     expired: false,
   });
+  sessionStorage.setItem(
+    FUTURES_INSTRUMENTS_CACHE_KEY,
+    JSON.stringify({ ts: Date.now(), data })
+  );
+  return data;
 }
 
 /**
@@ -158,9 +174,10 @@ export function getCallStats() {
 }
 
 /**
- * Clear the instruments cache. Useful for the test page and for forcing a
- * refetch if the operator suspects stale data.
+ * Clear the instruments caches (options + futures). Useful for the test
+ * page and for forcing a refetch if the operator suspects stale data.
  */
 export function clearInstrumentsCache() {
   sessionStorage.removeItem(INSTRUMENTS_CACHE_KEY);
+  sessionStorage.removeItem(FUTURES_INSTRUMENTS_CACHE_KEY);
 }

@@ -260,14 +260,19 @@ async function tick() {
       const nowMs = Date.now();
       const slices = buildSlices(opts, fwdCurve, spot, nowMs);
 
-      renderIvSurface("iv-surface", slices, nowMs);
+      // Render the cheap 2D charts first — slice grid + term structure + skew —
+      // then defer the heavy 3D scatter to the next animation frame so it
+      // doesn't block above-fold paint.
       renderIvSlices("iv-slices", slices, nowMs);
 
-      // Term structure + 25Δ skew — both derived from the same fitted slices
       const term = atmTermStructure(slices, nowMs);
       const skew = skewTermStructure(slices, spot, nowMs);
       renderAtmTermStructure("term-structure", term);
       renderSkewTermStructure("skew", skew);
+
+      requestAnimationFrame(() => {
+        renderIvSurface("iv-surface", slices, nowMs);
+      });
     })
     .catch((err) => {
       console.error("IV render failed:", err);
@@ -294,8 +299,27 @@ async function tick() {
   }
 }
 
-tick();
-setInterval(tick, REFRESH_MS);
+/**
+ * Plotly is loaded with `defer`. Module scripts also defer, and deferred
+ * scripts execute in document order, so Plotly *should* be defined by the
+ * time this module runs. But on slow connections the script tag could still
+ * be in flight when the first tick fires. Cheap poll until it's there.
+ */
+async function waitForPlotly(timeoutMs = 10_000) {
+  const start = performance.now();
+  while (typeof window.Plotly === "undefined") {
+    if (performance.now() - start > timeoutMs) {
+      throw new Error("Plotly failed to load within 10s");
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+(async () => {
+  await waitForPlotly();
+  await tick();
+  setInterval(tick, REFRESH_MS);
+})();
 
 export function isPaused() {
   return paused;

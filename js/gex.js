@@ -23,7 +23,11 @@ import { bsGamma, yearsToExpiry } from "./black_scholes.js";
 
 const DEFAULT_CONTRACT_SIZE = 1;
 const FLIP_SCAN_RANGE = 0.20;
-const FLIP_SCAN_STEP = 0.005;
+// 1% steps → 41 scan points across ±20%. Was 0.5%/81 points; the flip
+// resolution is bottlenecked by the linear interp in findZeroGammaFlip
+// anyway, not by the grid spacing — so this halves CPU per tick at no
+// visual cost.
+const FLIP_SCAN_STEP = 0.01;
 
 /**
  * @typedef {object} OptionRow
