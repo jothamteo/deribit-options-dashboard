@@ -134,47 +134,74 @@ function buildSlices(opts, fwdCurve, spot, nowMs) {
   return slices;
 }
 
+/**
+ * Progressive render: GEX paints as soon as its 3 fetches resolve; the IV
+ * surface waits for all 5. Each path has its own error boundary so a slow or
+ * failing futures fetch never blocks the GEX panel — that was the Phase-3
+ * regression.
+ */
 async function tick() {
   if (paused) return;
   const t0 = performance.now();
-  try {
-    const [spot, instruments, book, futureInst, futureBook] = await Promise.all([
-      getIndexPrice(),
-      getInstruments(),
-      getBookSummary(),
-      getFutures(),
-      getFuturesBookSummary(),
-    ]);
 
-    const opts = joinInstrumentsAndBook(instruments, book);
-    const oi = oiStats(opts);
+  // Fire all 5 fetches in parallel, share the first 3 across both render paths
+  const spotP = getIndexPrice();
+  const instsP = getInstruments();
+  const bookP = getBookSummary();
+  const futInstP = getFutures();
+  const futBookP = getFuturesBookSummary();
 
-    // GEX
-    const byStrike = gexByStrike(opts, spot);
-    const curve = gexCurve(opts, spot);
-    const flip = findZeroGammaFlip(curve);
+  // ── GEX render path (only needs spot + options) ────────────────────────
+  const gexPromise = Promise.all([spotP, instsP, bookP])
+    .then(([spot, instruments, book]) => {
+      const opts = joinInstrumentsAndBook(instruments, book);
+      const oi = oiStats(opts);
+      const byStrike = gexByStrike(opts, spot);
+      const curve = gexCurve(opts, spot);
+      const flip = findZeroGammaFlip(curve);
 
-    renderContextStrip(spot, oi, flip);
-    renderGexByStrike("gex-by-strike", byStrike, { spot, flip });
-    renderGexVsSpot("gex-vs-spot", curve, { spot, flip });
+      renderContextStrip(spot, oi, flip);
+      renderGexByStrike("gex-by-strike", byStrike, { spot, flip });
+      renderGexVsSpot("gex-vs-spot", curve, { spot, flip });
+      return { spot, opts };
+    })
+    .catch((err) => {
+      console.error("GEX render failed:", err);
+      contextStrip.innerHTML = `<div class="text-rose-400 text-sm font-mono">GEX error: ${err.message}</div>`;
+      throw err;
+    });
 
-    // IV surface
-    const fwdCurve = buildForwardCurve(futureInst, futureBook);
-    const nowMs = Date.now();
-    const slices = buildSlices(opts, fwdCurve, spot, nowMs);
-    renderIvSurface("iv-surface", slices, nowMs);
-    renderIvSlices("iv-slices", slices, nowMs);
+  // ── IV surface render path (needs futures additionally) ────────────────
+  const ivPromise = Promise.all([gexPromise, futInstP, futBookP])
+    .then(([{ spot, opts }, futureInst, futureBook]) => {
+      const fwdCurve = buildForwardCurve(futureInst, futureBook);
+      const nowMs = Date.now();
+      const slices = buildSlices(opts, fwdCurve, spot, nowMs);
+      renderIvSurface("iv-surface", slices, nowMs);
+      renderIvSlices("iv-slices", slices, nowMs);
+    })
+    .catch((err) => {
+      console.error("IV render failed:", err);
+      const slicesEl = document.getElementById("iv-slices");
+      if (slicesEl) {
+        slicesEl.innerHTML = `<div class="text-amber-400 text-sm font-mono">IV surface error: ${err.message}</div>`;
+      }
+    });
 
-    const ms = (performance.now() - t0).toFixed(0);
+  // Wait for both paths to settle — one error doesn't poison the other.
+  // Stamp the timestamp based on the GEX path's outcome (the visible-above-fold one).
+  const [gexResult] = await Promise.allSettled([gexPromise, ivPromise]);
+  const ms = (performance.now() - t0).toFixed(0);
+
+  if (gexResult.status === "fulfilled") {
     lastUpdated.textContent =
       `${new Date().toISOString().replace("T", " ").slice(0, 19)} UTC  (${ms}ms)`;
     lastUpdated.classList.remove("text-rose-500");
     lastUpdated.classList.add("text-zinc-400");
-  } catch (err) {
-    lastUpdated.textContent = `error: ${err.message}`;
+  } else {
+    lastUpdated.textContent = `tick failed (${ms}ms): ${gexResult.reason?.message ?? "unknown"}`;
     lastUpdated.classList.remove("text-zinc-400");
     lastUpdated.classList.add("text-rose-500");
-    console.error(err);
   }
 }
 
