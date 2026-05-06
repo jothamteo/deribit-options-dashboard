@@ -107,14 +107,19 @@ export function renderIvSlices(containerId, slices, nowMs) {
   // Clear and rebuild — slice count can change between refreshes (new expiry)
   root.innerHTML = "";
   const grid = document.createElement("div");
-  grid.className = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3";
+  // Lock to grid-cols-2 (mobile) / lg:grid-cols-3 (desktop). Avoids the
+  // xl: breakpoint at 1280px which was racing with Plotly's responsive
+  // resize and letting one card escape its column width.
+  // overflow-hidden + min-w-0 on each card prevents Plotly's internal
+  // width calc from blowing past the grid track.
+  grid.className = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3";
   root.appendChild(grid);
 
   for (let i = 0; i < slices.length; i++) {
     const s = slices[i];
     const days = (s.expirationMs - nowMs) / (86400 * 1000);
     const card = document.createElement("div");
-    card.className = "bg-zinc-900 border border-zinc-800 rounded p-2";
+    card.className = "bg-zinc-900 border border-zinc-800 rounded p-2 overflow-hidden min-w-0";
 
     const header = document.createElement("div");
     header.className = "flex items-baseline justify-between mb-1 text-xs font-mono";
@@ -129,7 +134,7 @@ export function renderIvSlices(containerId, slices, nowMs) {
 
     const plotDiv = document.createElement("div");
     plotDiv.id = `${containerId}-slice-${i}`;
-    plotDiv.className = "h-44";
+    plotDiv.className = "h-44 w-full";
     card.appendChild(plotDiv);
 
     grid.appendChild(card);
