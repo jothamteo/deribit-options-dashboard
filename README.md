@@ -2,7 +2,7 @@
 
 Live dealer gamma, vol surface, and skew dashboard for BTC options on Deribit, in your browser, no backend.
 
-**🔗 Live demo:** https://quantmaverick.github.io/deribit-options-dashboard/
+**🔗 Live demo:** https://jothamteo.github.io/deribit-options-dashboard/
 
 ![Dashboard screenshot](assets/screenshot.png)
 
@@ -102,7 +102,7 @@ deribit-options-dashboard/
 ## Running locally
 
 ```bash
-git clone https://github.com/QuantMaverick/deribit-options-dashboard
+git clone https://github.com/jothamteo/deribit-options-dashboard
 cd deribit-options-dashboard
 python3 -m http.server 8080      # any static file server works
 open http://localhost:8080/
@@ -127,4 +127,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## Contact
 
-QuantMaverick — [github.com/QuantMaverick](https://github.com/QuantMaverick)
+jothamteo — [github.com/jothamteo](https://github.com/jothamteo)
