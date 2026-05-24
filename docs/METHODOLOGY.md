@@ -46,7 +46,7 @@ This is critical for the SVI fit: log-moneyness is $k = \ln(K / F_i)$, not $\ln(
 
 $$\text{GEX}_i = \Gamma_i \cdot \text{OI}_i \cdot \text{contractSize} \cdot S^2 \cdot 0.01 \cdot \epsilon_i$$
 
-where $\epsilon_i = +1$ for calls and $\epsilon_i = -1$ for puts (SqueezeMetrics canonical assumption: dealers are net short calls, net long puts).
+where $\epsilon_i = +1$ for calls and $\epsilon_i = -1$ for puts (SqueezeMetrics canonical assumption: dealers are net long calls, net short puts).
 
 The factor $S^2 \cdot 0.01$ converts $\Gamma$ (dollar-gamma per share per dollar move) to the conventional GEX unit — dollar gamma per 1% spot move.
 

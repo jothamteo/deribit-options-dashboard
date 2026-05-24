@@ -12,7 +12,7 @@ Static HTML + vanilla ES2022 modules. Plotly for charts, Tailwind via CDN. The b
 
 ## Why this exists
 
-Crypto options sit at an awkward intersection: liquid enough for serious flow analysis, but the dealer-positioning literature was written for SPX. SqueezeMetrics' GEX framework assumes a stable dealer cohort that's net-short calls and net-long puts. On Deribit, that cohort is more heterogeneous — the venue serves prop, retail, and a smaller dealer book than CBOE — which makes the canonical sign convention more fragile. This dashboard implements the canonical math honestly, then lays out exactly where the assumption gets thin. The methodology page does not hand-wave.
+Crypto options sit at an awkward intersection: liquid enough for serious flow analysis, but the dealer-positioning literature was written for SPX. SqueezeMetrics' GEX framework assumes a stable dealer cohort that's net-long calls and net-short puts. On Deribit, that cohort is more heterogeneous — the venue serves prop, retail, and a smaller dealer book than CBOE — which makes the canonical sign convention more fragile. This dashboard implements the canonical math honestly, then lays out exactly where the assumption gets thin. The methodology page does not hand-wave.
 
 The math is the project. The polish is the cover. Every formula cites a source.
 

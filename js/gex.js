@@ -4,7 +4,7 @@
  * Per-option contribution:
  *   GEX_i = Γ_i · OI_i · contractSize · S² · 0.01 · ε_i
  * where ε_i = +1 for calls, −1 for puts (SqueezeMetrics canonical sign:
- * dealers net-short calls, net-long puts). The S² · 0.01 factor converts
+ * dealers net-long calls, net-short puts). The S² · 0.01 factor converts
  * Γ (dollar-gamma per share per dollar move) to the conventional GEX unit:
  * dollar gamma per 1% spot move.
  *
